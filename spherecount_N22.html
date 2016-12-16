@@ -1,0 +1,221 @@
+﻿<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Ball Count with Arbitrary Generating Set for Heisenberg Group</title>
+    <script src="http://cosmos.mat.uam.es/static/jquery.min.js"></script>
+    <script src="http://cosmos.mat.uam.es/static/embedded_sagecell.js"></script>
+    <script>$(function () {
+    // Make the div with id 'mycell' a Sage cell
+    sagecell.makeSagecell({inputLocation:  '#mycell',
+                           template:       sagecell.templates.minimal,
+            hide:       ['evalButton'],
+            autoeval:   true,
+                           evalButtonText: 'Activate'});
+    });
+    </script>
+  </head>
+  <body>
+
+<div>
+Type in a generating set in $\{abcABC\}^*$, and the radius of the ball you want the sphere count of. In the example below, the generating set is the standard one. 
+</div>
+    <div id="mycell"><script type="text/x-sage">
+
+#Written by Hang Lu Su, under the guidance of Moon Duchin and Andrew P. Sánchez.
+#-----
+
+#Fast Malcifier 
+#-----
+
+#Make N_2,2 with generators a,b, c = [a,b]
+F.<a,b,c> = FreeGroup()
+A, B, C = [x.inverse() for x in F.gens()]
+
+#-----
+def element_of_string(s):
+    """
+    Transform string "aaBabbAAb" into group element.
+    The element returned is the product a*a*B*a*b*b*A*A*b,
+    it is not in Malcev normal form.
+    """
+    # make sure the input is a string representing an element
+    # in G before evaluating
+    if type(s) is not str:
+        raise TypeError("Expected argument of type string.")
+    if len(s) == sum(s.count(x) for x in 'abcABC'):
+        return reduce(lambda x,y: x*y, [eval(z) for z in s])
+    raise ValueError("Argument of element_of_string should "
+                     "be a string in characters abcABC.")
+
+def genset_parser(user_input):
+    gen_list = []
+    string_gen_list = user_input.split(',')
+    print string_gen_list
+    for string_gen in string_gen_list:
+        gen_list.append(element_of_string(str(string_gen)))
+    return gen_list
+
+def radius_parser(user_input):
+    if type(eval(user_input)) is not int:
+        raise TypeError("Expected argument of type int.")
+    return eval(user_input)
+
+#-----
+
+#(word,int) list -> (word,int) list, int
+def collect_c(syl):
+    ab_syl = []
+    c_counter = 0
+    for i in range(len(syl)):
+        if str(syl[i][0]) == 'c':
+            power_of_c = syl[i][1]
+            c_counter = c_counter + power_of_c
+        else: 
+            ab_syl.append((syl[i]))
+
+    return ab_syl,c_counter
+
+#list -> word
+def reconstruct_word_from_syllables(syl):
+    h = F.one()
+    for i in range(len(syl)):
+        h = h*syl[i][0]^syl[i][1]
+    return h
+
+#list -> word
+def freely_reduce(syl):
+    reduced_word = reconstruct_word_from_syllables(syl)
+    syl = list(reduced_word.syllables())
+    return syl
+
+#(word,int) list -> (word,int) list
+def convert_to_alternating_ba_pattern(syl):
+    if syl == []:
+        syl = [(b,0),(a,0)]
+    else:
+        if str(syl[0][0]) != 'b':
+            syl.insert(0,(b,0))
+        if str(syl[-1][0]) != 'a':
+            syl.append((a,0))
+
+#(word,int) list -> int list, int list
+def parse_ab_powers(syl):
+    a_powers = []
+    b_powers = []
+    for i in range(len(syl)/2):
+        b_powers.append(syl[2*i][1])
+        a_powers.append(syl[2*i+1][1])
+    return a_powers, b_powers
+
+#(int list, int list) -> int
+def compute_Malcev_coords(a_powers,b_powers,c_counter):
+    #Given a_powers = [x_1,..,x_n], b_powers = [y_1,...,y_n], 
+    #formula for a coordinate is x = (x_1+...+x_n),
+    #formula for b coordinate is y = (y_1+...+y_n),
+    #formula for c coordinate is z =  -(x_1*(y_1+..+y_n) + x_2*(y_2+...+y_n) + ... + x_n y_n).
+
+    X = sum(a_powers)
+    Y = sum(b_powers)
+
+    n = len(a_powers)
+    y_partial_sum = 0
+    y_partial_sum_list = []
+    z_0 = c_counter
+    z = 0
+    
+    for i in range(n):
+        y_partial_sum += b_powers[i]
+        y_partial_sum_list.append(y_partial_sum)
+
+    for i in range(n):
+        z += a_powers[i]*y_partial_sum_list[i]
+
+    Z = -z + z_0
+
+    return X,Y,Z
+
+#word -> (int,int,int)
+def fast_Malcev_coord(g):
+    syl = list(g.syllables())
+    syl,c_counter = collect_c(syl)
+    syl = freely_reduce(syl)
+    convert_to_alternating_ba_pattern(syl)
+    a_powers, b_powers = parse_ab_powers(syl)
+    x,y,z = compute_Malcev_coords(a_powers,b_powers,c_counter)
+
+    return (x,y,z)
+
+#word -> word
+def fast_Malcify(g): 
+    coord = fast_Malcev_coord(g)
+    x,y,z = coord[0],coord[1],coord[2]
+    return a^x*b^y*c^z
+
+#-----
+#Sphere Counter
+#----
+
+
+#(group element list, group element list) -> group element list
+def increment_by_letter(generating_set,strings):
+    new_strings = []
+    for string in strings: 
+        for generator in generating_set:
+            new_strings.append(string*generator)
+            new_strings.append(string*generator^-1)
+    return new_strings
+
+#group element list -> (int,int,int) Set
+def get_Malcev_coords(strings):
+    Malcev_coords = set([])
+    for string in strings:
+        Malcev_coord = fast_Malcev_coord(string)
+        Malcev_coords.add(Malcev_coord)
+    return Malcev_coords
+
+#(int,int,int) Set -> group element list
+def generate_strings_from_coords(coords):
+    strings = []
+    for coord in coords:
+        x,y,z = coord[0],coord[1],coord[2]
+        strings.append(a^x*b^y*c^z)
+    return strings
+
+#(group element list, int) -> group element Set
+def generate_ball(generating_set, radius):
+    current_radius = 0
+    current_strings = [F.one()]
+    word_collection = set([(0,0,0)]) #saved as Malcev coordinates to avoid word problem with data struture Set.
+
+    if radius == 0: 
+        return word_collection
+
+    while current_radius < radius:
+        current_strings = list(increment_by_letter(generating_set,current_strings))
+        current_words = get_Malcev_coords(current_strings)
+        word_collection = word_collection.union(current_words) 
+        current_strings =  generate_strings_from_coords(current_words) #Keeping only one word representative saves time and space.
+        current_radius = current_radius + 1
+
+    return word_collection
+
+#(group element list, int) -> int 
+def count_ball(generating_set,radius):
+    ball = generate_ball(generating_set,radius)
+    return len(ball)
+
+#-----
+#Input Box 
+#-----
+
+@interact
+def _(generating_set=input_box('a,b,c', type = str, label ="generating set"),radius = input_box('2', type = str)):
+  pretty_print("The ball count is ")
+  pretty_print(count_ball(genset_parser(generating_set),radius_parser(radius)))
+
+ </script>
+</div>
+  </body>
+</html>
